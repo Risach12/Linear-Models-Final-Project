@@ -1,0 +1,435 @@
+---
+title: "LMFinal_Cherkashina"
+author: "Elizaveta Cherkashina"
+date: "2025-04-09"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library("foreign")
+library("dplyr")
+library("tidyr")
+library("car")
+library("e1071")
+library("lmtest")
+library("ggplot2")
+library("relaimpo")
+```
+
+# Dataset and Variable Choice, RQ Formulation
+
+For this project, I chose to study the “addhealth” dataset, specifically, I am interested in seeing whether or not depression in teenagers is correlated with relationships with friends and family. The reason why I am specifically interested in studying depression is because with the destigmatization of this diagnosis, the outcomes of the research could allow us to pay more attention to the groups that are more vulnerable to it. Moreover, the article “Depression in teenagers” (Martin, 1996) briefly mentions that family dynamics are related to depression in younger teenagers, which I want to check using the data of the provided dataset.
+
+It is important to mention that in the context of this dataset, the “depress” variable does not signify being diagnosed with clinical depression but rather captures various negative emotions associated with depression (loneliness, sadness, etc.) and their strength.
+
+**My research question is as follows**: How is the quality of relationships with friends and family correlated with depression, if at all? The hypotheses are the following:
+
+**- H0**: There is no correlation between family and friends relationships and depression;
+
+**- H1**: There is a significant linear relationship between depression and predictor variables.
+
+**Dependent variable**: depress;
+
+**Independent variables**: sex, age, frndscare, prntscare, famundrst, depress, momcare, dadcare, momrshp, dadrshp, esteem, intlgnce and race.
+
+Although the main focus of the study is the relationship-related variables, the table also shows variables such as age, sex, and race. I also assume that esteem and intelligence (as perceived by a respondent) can have a strong effect on depression. These variables are known to have some relationship with depression and, thus, are taken as control variables. Studies have shown that women (Girgus & Yang, 2015) and teenage girls (Shokrgozar et al., 2019) are more likely to develop depression, similar to teenagers of specific ages (Shokrgozar et al., 2019), and racial/ethnic minorities (Patil et al., 2018).
+
+My dependent variable is numeric, and independent variables are either numeric or factors, thus the best approach for modeling would be using a multiple linear regression.
+
+Before modeling, the data should be cleaned:
+
+```{r data clean-up}
+# Reading the data
+health_dat <- read.dta("addhealth.dta")
+
+# Removing NAs in chosen rows
+health_dat <- health_dat %>% 
+  drop_na(c(sex,age,frndscare,prntscare,
+            famundrst,depress,momcare,dadcare,
+            momrshp,dadrshp,hispanic,white,black,
+            asian,othrace,esteem, intlgnce))
+
+# Converting age to integer (considering only years of age, not months)
+health_dat$age <- as.integer(health_dat$age)
+
+# Converting sex into numerals (1 = male, 2 = female)
+health_dat$sex <- gsub("\\D", "", health_dat$sex)
+health_dat$sex <- factor(health_dat$sex, levels = c(1, 2),
+                         labels = c("Male", "Female"))
+
+# Leaving only numeric values in frndscare, prntscare, famundrst, 
+# momcare, dadcare variables 
+health_dat$frndscare <- gsub("\\D", "", health_dat$frndscare)
+health_dat$prntscare <- gsub("\\D", "", health_dat$prntscare)
+health_dat$famundrst <- gsub("\\D", "", health_dat$famundrst)
+health_dat$momcare <- gsub("\\D", "", health_dat$momcare)
+health_dat$dadcare <- gsub("\\D", "", health_dat$dadcare)
+health_dat$momrshp <- gsub("\\D", "", health_dat$momrshp)
+health_dat$dadrshp <- gsub("\\D", "", health_dat$dadrshp)
+health_dat$intlgnce <- gsub("\\D", "", health_dat$intlgnce)
+
+
+# Making sure numeric variables are saved as numeric
+health_dat <- health_dat %>%  
+  mutate(across(c(frndscare,prntscare,famundrst,momcare,dadcare,
+                  momrshp,dadrshp,intlgnce,esteem), as.numeric))
+
+# Race variables clean-up and factoring
+health_dat$hispanic <- gsub("\\D", "", health_dat$hispanic)
+health_dat$white <- gsub("\\D", "", health_dat$white)
+health_dat$asian <- gsub("\\D", "", health_dat$asian)
+health_dat$black <- gsub("\\D", "", health_dat$black)
+health_dat$othrace <- gsub("\\D", "", health_dat$othrace)
+
+health_dat$race <- ifelse(health_dat$hispanic == 1, "Hispanic",
+                          ifelse(health_dat$white == 1, "White",
+                                 ifelse(health_dat$asian == 1, "Asian",
+                                        ifelse(health_dat$black == 1, "Black",
+                                               ifelse(health_dat$othrace == 1, 
+                                                      "Other", "Unknown")))))
+health_dat$race <- factor(health_dat$race, 
+                          levels = c("White",
+                                     "Hispanic", 
+                                     "Asian",
+                                     "Black",
+                                     "Other"
+                                     ),
+                          )
+```
+
+# Modeling
+
+In this section I will build a model, which will also include testing some assumptions for better understanding why the model was changed. All assumption together will be included at the end of this document for better readability.
+
+```{r modeling}
+# Linear model 
+linmod <- lm(depress ~ sex + age + race + frndscare + prntscare + famundrst + 
+               momcare + dadcare + momrshp + dadrshp + esteem + intlgnce, 
+             data = health_dat)
+summary(linmod) 
+
+linmod1 <- lm(depress ~ sex + age + race + famundrst + momcare + dadcare + 
+                momrshp + dadrshp + esteem + intlgnce, 
+             data = health_dat)
+summary(linmod1)
+```
+
+frndscare and prntscare variables do not have a significant relation, but reduce the significance of sex variable. esteem is significant and reduces the significance of sex variable. Based on the results above and studies that show a relation between being female and being depressed, we need to check for interactions between sex and variables that change its significance when removed from the model
+
+```{r modeling continuation}
+# Checking for interaction effect
+linmod2 <- lm(depress ~ sex + age + race + frndscare + prntscare + famundrst +
+                momcare + dadcare + momrshp + dadrshp + sex*prntscare + 
+                sex*frndscare + esteem + intlgnce, data = health_dat)
+# only the interaction between sex and prntscare is significant, 
+# momcare and dadcare are insignificant similar to previous models
+summary(linmod2) 
+
+linmod3 <- lm(depress ~ sex + age + race + famundrst + dadrshp + sex*prntscare + 
+                esteem + intlgnce, data = health_dat)
+# variable sex itself is not significant, but its interaction 
+# with prntscare has a very high significance
+summary(linmod3) 
+
+# Because of the interaction between variables we need to check VIF, 
+# it might suggest multicollinearity 
+
+vif(linmod3) # very high values of VIF for variables that interact
+
+# Centering numeric variable to deal with high VIF values
+health_dat$prntscare_centered <- scale(health_dat$prntscare, 
+                                       center = TRUE, 
+                                       scale = FALSE)
+
+linmod_c <- lm(depress ~ sex + age + race + famundrst + dadrshp + 
+                 sex*prntscare_centered + esteem + intlgnce, data = health_dat)
+summary(linmod_c)
+
+vif(linmod_c) # VIF values are good after centering
+
+# Checking assumptions that can affect the final model
+resid <- residuals(linmod_c)
+# skewness is positive but less than 1, thus very low and acceptable
+skewness(resid) 
+# value is very close to 0, thus the zero-mean assumption is satisfied
+mean(resid) 
+# DW test result is 2.0017, meaning that residuals are likely independent and
+# p-value greater than 0.05 supports it
+dwtest(linmod_c) 
+
+# residuals distribution has a distinct cone shape, transformation is needed
+plot(linmod_c, which = 1) 
+# suggested power of transformation is approximately 0.4770316
+# (might change slightly because of how the function works)
+spreadLevelPlot(linmod_c) 
+
+# Model with transformation
+depress_trans <- health_dat$depress^0.4770316
+linmod_c <- lm(depress_trans ~ sex + age + race + famundrst + dadrshp + 
+                 sex*prntscare_centered + esteem + intlgnce, data = health_dat)
+summary(linmod_c)
+plot(linmod_c, which = 1) # much better spread residuals
+```
+
+# Model Interpretation
+
+F-statistic suggests that the model is overall significant, although there are some variables that are not statistically significant. Asian and Black levels of race are not significant, as well as sex and prntscare, but these variables are left in the model because their interaction is very statistically significant.
+
+R-square is sufficient, but still low. This is explained by the fact that I have only concentrated on how relationships with people are connected to depression and added some control variables. Because causes of depression are very complex it is not surprising that this model only explains approximately 26% of the variance.
+
+**Variable coefficients**:
+
+sexFemale (0.02540): Being female (vs. male) has a very small positive effect on depression score, but the effect is not statistically significant (p = 0.58837 \> 0.05).
+
+age (0.06235): As age increases, depress_trans increases by 0.06235 units. This is statistically significant with a p-value of 2.60e-06, indicating a strong positive relationship between age and depression.
+
+raceHispanic (0.19827): Being Hispanic is associated with an increase of 0.19827 units in depress_trans (compared to the reference group). This is statistically significant (p = 0.01041).
+
+raceAsian (0.14343): Being Asian is associated with a small increase of 0.14343 units in depression, but this is not statistically significant (p = 0.21332).
+
+raceBlack (0.10236): Being Black has a small positive effect on depression, but it is not statistically significant (p = 0.12248).
+
+raceOther (0.23765): Being from another race is associated with an increase of 0.23765 units in depression, and this effect is statistically significant (p = 0.02236).
+
+famundrst (-0.11839): Having a family background that is less supportive is associated with a decrease of 0.11839 units in depression. This effect is statistically significant (p = 1.23e-05).
+
+dadrshp (-0.08763): Having a strong relationship with the father is associated with a decrease of 0.08763 units in depression. This effect is statistically significant (p = 0.00133).
+
+prntscare_centered (0.03012): Parental care has a small positive effect on depression, but this effect is not statistically significant (p = 0.61175).
+
+esteem (-0.10106): Higher self-esteem is associated with a decrease in depression by 0.10106 units. This effect is very strong and statistically significant (p \< 2e-16).
+
+intlgnce (-0.08613): Higher intelligence is associated with a decrease in depression by 0.08613 units. This effect is statistically significant (p = 8.31e-05).
+
+sexFemale:prntscare_centered (-0.24099): There is an interaction effect between being female and parental care, with a negative effect of -0.24099. This suggests that for females, higher parental care is associated with a greater reduction in depression compared to males. This interaction is statistically significant (p = 0.00869).
+
+# Influential Observations and Relative Importance Sets
+
+## Influential Observations
+
+In this part of the project I will check for influential observations and comment on whether or not they should be removed. Relative importance sets will also be determined.
+
+First, I am going to test for outliers with studentized residuals:
+
+```{r IO & RIS}
+# Studentized residuals
+studentized_residuals <- rstudent(linmod_c)
+
+# Plot studentized residuals
+plot(studentized_residuals, main = "Studentized Residuals",
+     ylab = "Studentized Residuals", pch = 19)
+abline(h = c(-2, 2), col = "red")  # thresholds for identifying large residuals
+
+# Quantile comparison plot
+ggplot(data = data.frame(resid = residuals(linmod_c)), aes(sample = resid)) +
+  stat_qq() +
+  stat_qq_line(col = "red") +
+  ggtitle("Q-Q Plot of Model Residuals")
+```
+
+Studentized residuals plot suggests presence of outliers, most of them are around 2 and -2 thresholds, which means these are moderate, although there are some outliers that surpass -3 and even -4 thresholds. These outliers are potentially more influential on the model.
+
+Quantile comparison plot suggests that generally the distribution is normal, but there is some deviation at both tales. This means there are either outliers or heavier tails in the residual distribution.
+
+Although we have determined that there are some outliers, we need to see whether or not those are influential on the model:
+
+```{r influence}
+# Influence through leverage
+leverage <- hatvalues(linmod_c)
+threshold <- 2 * (length(coef(linmod_c)) / nrow(health_dat))
+
+# Find high leverage observations
+which(leverage > threshold)
+plot(leverage, main = "Leverage Values", ylab = "Leverage")
+abline(h = threshold, col = "red", lty = 2)
+
+# Influence through Cook's distance
+plot(linmod_c, which = 4)
+```
+
+Based on the leverage plot, we can see that there are quite a lot of values that have leverage above the threshold, which could be potentially problematic. To check the influence, Cook's distance was plotted.
+
+Looking at Cook's distance plot, we see that there is only one truly problematic point with high influence on the model. Next, I need to decide whether it should be removed from the model (in case it is a mistake) or not (in case it is a valid data point).
+
+```{r outlier identification}
+# Identifying the observation
+which.max(cooks.distance(linmod_c))
+```
+
+Observation named 558 has an index of 374. This observation has a 0 score for depression, which is rare, but not impossible, considering this observation does not have everything else at 0, thus it is unlikely an error in data, but rather a rare case. While it might distort the model to some extent, I would suggest not to remove this observation, since it is still a valid case.
+
+## Relative Importance Sets
+
+Although previously I have determined significant variables for the model through iteration process, here I will use relative importance sets to see whether I was correct when iterating the model. I will start the analysis with the first model I did.
+
+```{r RIS}
+# Compute the relative importance of each predictor
+importance <- calc.relimp(linmod, type = "lmg", rela = TRUE)
+
+# Print the relative importance
+print(importance)
+
+# Other model iterations
+importance <- calc.relimp(linmod1, type = "lmg", rela = TRUE)
+print(importance)
+
+importance <- calc.relimp(linmod3, type = "lmg", rela = TRUE)
+print(importance)
+
+importance <- calc.relimp(linmod_c, type = "lmg", rela = TRUE)
+print(importance)
+```
+
+Looking at the output we can see that the initial iteration process when building a model produced similar results in terms of determining significant and influential variables for the model. The importance and significance of the variables in different iterations of the model were discussed above.
+
+# Model Plot
+
+Because the final model has interaction, I cannot use crPlots function, thus it will plotted as follows:
+
+```{r model plot}
+# Scatter plot for continuous predictors vs. depress_trans (with regression line)
+ggplot(health_dat, aes(x = age, y = depress_trans)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  labs(title = "Age vs Depression (with Linear Regression Line)", x = "Age", 
+       y = "Depression (Transformed)")
+
+ggplot(health_dat, aes(x = esteem, y = depress_trans)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  labs(title = "Esteem vs Depression (with Linear Regression Line)", 
+       x = "Esteem", y = "Depression (Transformed)")
+
+ggplot(health_dat, aes(x = intlgnce, y = depress_trans)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  labs(title = "Intelligence vs Depression (with Linear Regression Line)", 
+       x = "Intelligence", y = "Depression (Transformed)")
+
+# Box plot for categorical predictors
+ggplot(health_dat, aes(x = sex, y = depress_trans)) +
+  geom_boxplot() +
+  labs(title = "Sex vs Depression", x = "Sex", y = "Depression (Transformed)")
+
+ggplot(health_dat, aes(x = race, y = depress_trans)) +
+  geom_boxplot() +
+  labs(title = "Race vs Depression", x = "Race", y = "Depression (Transformed)")
+
+# Visualize the interaction term between sex and prntscare_centered
+# Generate predictions for different values of prntscare_centered 
+# (e.g., mean, -1 SD, +1 SD)
+prntscare_vals <- seq(from = min(health_dat$prntscare_centered), 
+                      to = max(health_dat$prntscare_centered), length.out = 100)
+
+# Create a new data frame with different values of prntscare_centered and sex
+interaction_data <- expand.grid(prntscare_centered = prntscare_vals, 
+                                sex = unique(health_dat$sex))
+
+# Add the missing predictor variables (e.g., age, race, famundrst, etc.)
+interaction_data$age <- mean(health_dat$age, na.rm = TRUE)
+interaction_data$race <- factor("White", levels = levels(health_dat$race))
+interaction_data$famundrst <- mean(health_dat$famundrst, na.rm = TRUE)
+interaction_data$dadrshp <- mean(health_dat$dadrshp, na.rm = TRUE)
+interaction_data$esteem <- mean(health_dat$esteem, na.rm = TRUE)
+interaction_data$intlgnce <- mean(health_dat$intlgnce, na.rm = TRUE)
+
+# Scale the prntscare_centered variable for newdata (interaction_data)
+interaction_data$prntscare_centered <- 
+  scale(interaction_data$prntscare_centered)
+
+# Now make predictions (scaled prntscare_centered)
+interaction_data$predicted_depress <-
+  predict(linmod_c, newdata = interaction_data)
+
+# Plot the interaction between sex and prntscare_centered
+ggplot(interaction_data, aes(x = prntscare_centered, 
+                             y = predicted_depress, color = sex)) + 
+  geom_line() + labs(title = "Interaction: Sex and Prntscare Centered", 
+                     x = "Prntscare Centered", y = "Predicted Depression") +
+  scale_color_manual(values = c("blue", "red"))
+```
+
+# Assumption Check on the Final Model
+
+## Model level assumptions
+
+**Completeness:**
+
+Because true models are never known, the model should be based on theory. The control variables and the variables of interest were chosen based either on existing articles or my assumptions, which are discussed above. Considering that I am studying depression from the perspective of human relationships, it is likely that the model will not be able to explain all the variance, as there are a lot more other factors that affect the severity of depression.
+
+**Additivity:**
+
+The model is additive, although through iteration one interaction effect was added to take into consideration the relationship between the sex variable and the prntscare variable (interaction effects do not affect this assumption).
+
+**Linearity:**
+
+Based on the graphs below, there are no clear linearity assumption violations. Although the purple lines are not ideally linear, it is acceptable to model the relationship as linear for modeling purposes, as there are rarely pure linear relationships in real data. Categorical variables also have an expected behavior. Esteem seems to have the clearest linear relation to depress. (Assumption checked on the initial model's set of variables)
+
+```{r linearity, echo=FALSE, warning=FALSE}
+crPlots(linmod1) 
+```
+
+## Variable level assumptions
+
+**Variables measured without error:**
+
+This assumption is difficult to access because the data was collected by other researchers. For the sake of the model, we have to assume that they have measured the variables without error or, more realistically, with small enough errors.
+
+**Variables measured at an interval or ratio scale:** This assumption is met based on the dataset description and the type of model was chosen based on the fact that the dependent variable and independent variables are measured using either interval or ratio scales.
+
+## Error level assumptions
+
+**Normal distribution:**
+
+Skewness is negative, but less than -1, which is a small enough value to consider that the assumption is met
+
+```{r error distribtuion}
+resid <- residuals(linmod_c)
+skewness(resid)
+```
+
+**Zero-mean assumption**
+
+The residuals’ mean is very close to zero, thus, the assumption is satisfied.
+
+```{r zero mean}
+mean(resid)
+```
+
+**Non-independence/autocorrelation:**
+
+The Durbin-Watson test result is slightly above 2, with a p-value bigger than 0.05, suggesting that residuals are most likely independent and the assumption is satisfied.
+
+```{r independence}
+dwtest(linmod_c)
+```
+
+**Homoscedasticity:** The initial model’s residual vs fitted plot had a clear cone-like shape, suggesting heteroscedasticity. After using spreadlevelPlot, the response variable was transformed with a power of transformation around 0.477, which has resulted in a better plot, suggesting that the homoscedasticity assumption is satisfied at least to some extent.
+
+```{r homoscedasticity}
+plot(linmod_c, which = 1)
+```
+
+**Predictors unrelated to errors:**
+
+From a theoretical standpoint, reciprocal causation is unlikely but still possible (for example, between depress and esteem). For the sake of the model building, we have to assume independence.
+
+**Errors unrelated to each other:**
+
+Because I am only dealing with one model equation, this assumption is irrelevant for this case.
+
+# Conclusion
+
+I have built a model to see whether family and friends relationships are correlated with depression. Based on the results of the model, we reject H0 and accept H1, which states that at least one of the variables in the model has a significant linear relationship with depress variable.
+
+Better relationships with parents (specifically dads) and understanding of a family are connected with decrease in depression, while relationships with friends do not seem to have any explanatory power over depression. Another interesting result is that parents' care matters more for females in terms of depression reduction.
+
+# References
+
+Girgus, J. S., & Yang, K. (2015). Gender and depression. Current Opinion in Psychology, 4, 53–60. <https://doi.org/10.1016/j.copsyc.2015.01.019>
+
+Martin, G. (1996). Depression in teenagers. Current Therapeutics, 37, 57-67.
+
+Patil, P. A., Porche, M. V., Shippen, N. A., Dallenbach, N. T., & Fortuna, L. R. (2018). Which girls, which boys? the intersectional risk for depression by race and ethnicity, and gender in the U.S. Clinical Psychology Review, 66, 51–68. <https://doi.org/10.1016/j.cpr.2017.12.003>
+
+Shokrgozar, S., Khesht-Masjedi, M., Abdollahi, E., Habibi, B., Asghari, T., Ofoghi, R., & Pazhooman, S. (2019). The relationship between gender, age, anxiety, depression, and academic achievement among teenagers. Journal of Family Medicine and Primary Care, 8(3), 799. <https://doi.org/10.4103/jfmpc.jfmpc_103_18>
